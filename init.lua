@@ -53,13 +53,116 @@ vim.opt.rtp:prepend(lazypath)
 require("lazy").setup({
   -- 색상 테마
   {
-  "catppuccin/nvim",
-  name = "catppuccin",
-  priority = 1000,
-  config = function()
-    vim.cmd.colorscheme "catppuccin-latte"  -- mocha를 latte로 변경
-  end,
+    "catppuccin/nvim",
+    name = "catppuccin",
+    priority = 1000,
+    config = function()
+      vim.cmd.colorscheme "catppuccin-latte"
+    end,
   },
+  
+  -- 코드 실행기 추가 (Java 스마트 실행 포함)
+  {
+    "CRAG666/code_runner.nvim",
+    config = function()
+      require('code_runner').setup({
+        mode = "term",  -- 터미널 모드 (입력 지원)
+        focus = true,   -- 실행 시 포커스 이동
+        startinsert = true,  -- 입력 모드로 시작
+        term = {
+          position = "bot",  -- 하단에 터미널 열기
+          size = 15,         -- 터미널 크기
+        },
+        filetype = {
+          cpp = "cd $dir && g++ $fileName -o $fileNameWithoutExt && ./$fileNameWithoutExt",
+          c = "cd $dir && gcc $fileName -o $fileNameWithoutExt && ./$fileNameWithoutExt",
+          kotlin = "cd $dir && kotlinc $fileName -include-runtime -d /tmp/$fileNameWithoutExt.jar && java -jar /tmp/$fileNameWithoutExt.jar",
+          java = function()
+            -- 현재 파일 정보
+            local file = vim.fn.expand('%:p')
+            local dir = vim.fn.expand('%:p:h')
+            local filename = vim.fn.expand('%:t')
+            local classname = vim.fn.expand('%:t:r')
+            
+            -- 파일 내용 분석
+            local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+            local package = nil
+            local has_main = false
+            
+            -- 패키지명과 main 메서드 찾기
+            for _, line in ipairs(lines) do
+              -- 패키지 선언 찾기
+              local pkg_match = line:match("^package%s+([%w%.]+)")
+              if pkg_match then
+                package = pkg_match
+              end
+              -- main 메서드 찾기
+              if line:match("public%s+static%s+void%s+main") then
+                has_main = true
+              end
+            end
+            
+            -- 실행 명령어 생성
+            if has_main then
+              -- 현재 파일에 main이 있는 경우
+              if package then
+                -- 패키지가 있는 경우
+                local package_path = package:gsub("%.", "/")
+                -- 패키지 루트 디렉토리 찾기
+                local root = dir
+                local path_parts = {}
+                for part in string.gmatch(package, "[^.]+") do
+                  table.insert(path_parts, part)
+                  root = vim.fn.fnamemodify(root, ':h')
+                end
+                
+                return string.format(
+                  "cd %s && javac %s/*.java && java %s.%s",
+                  root, package_path, package, classname
+                )
+              else
+                -- 패키지가 없는 경우
+                return string.format(
+                  "cd %s && javac *.java && java %s",
+                  dir, classname
+                )
+              end
+            else
+              -- 현재 파일에 main이 없는 경우 - 같은 디렉토리에서 main 찾기
+              if package then
+                -- 패키지가 있는 경우
+                local package_path = package:gsub("%.", "/")
+                local root = dir
+                local path_parts = {}
+                for part in string.gmatch(package, "[^.]+") do
+                  table.insert(path_parts, part)
+                  root = vim.fn.fnamemodify(root, ':h')
+                end
+                
+                -- grep으로 main 메서드가 있는 클래스 찾기
+                return string.format(
+                  [[cd %s && javac %s/*.java && MAIN_CLASS=$(grep -l "public static void main" %s/*.java 2>/dev/null | head -1 | xargs -r basename | sed 's/.java//') && if [ -n "$MAIN_CLASS" ]; then java %s.$MAIN_CLASS; else echo "No main method found in package %s"; fi]],
+                  root, package_path, package_path, package, package
+                )
+              else
+                -- 패키지가 없는 경우
+                return string.format(
+                  [[cd %s && javac *.java && MAIN_CLASS=$(grep -l "public static void main" *.java 2>/dev/null | head -1 | sed 's/.java//') && if [ -n "$MAIN_CLASS" ]; then java $MAIN_CLASS; else echo "No main method found"; fi]],
+                  dir
+                )
+              end
+            end
+          end,
+          python = "python3",
+          javascript = "node",
+          typescript = "ts-node",
+          rust = "cd $dir && rustc $fileName && ./$fileNameWithoutExt",
+          go = "go run",
+        },
+      })
+    end,
+  },
+  
   -- 파일 탐색기
   {
     "nvim-neo-tree/neo-tree.nvim",
@@ -104,7 +207,7 @@ require("lazy").setup({
     build = ":TSUpdate",
     config = function()
       require("nvim-treesitter.configs").setup({
-        ensure_installed = { "lua", "vim", "vimdoc", "python", "javascript", "typescript", "c", "rust", "kotlin"},
+        ensure_installed = { "lua", "vim", "vimdoc", "python", "javascript", "typescript", "c", "rust", "kotlin", "java"},
         auto_install = true,
         highlight = {
           enable = true,
@@ -131,7 +234,7 @@ require("lazy").setup({
           "lua_ls",
           "pyright",
           "ts_ls",
-          --"kotlin_language_server",
+          -- "jdtls",  -- Java LSP (선택사항)
         },
       })
       require("fidget").setup()
@@ -162,32 +265,10 @@ require("lazy").setup({
         capabilities = capabilities,
       })
 
-      -- Kotlin LSP 설정 부분을 이렇게 변경
-      --[[
-      lspconfig.kotlin_language_server.setup({
-        capabilities = capabilities,
-        cmd = { "kotlin-language-server" },
-        filetypes = { "kotlin" },
-        root_dir = lspconfig.util.root_pattern("settings.gradle", "settings.gradle.kts", "build.gradle", "build.gradle.kts", ".git"),
-        settings = {
-          kotlin = {
-            compiler = {
-              jvm = {
-                target = "17"
-              }
-            }
-          }
-        },
-        init_options = {
-          storagePath = vim.fn.stdpath('data') .. '/kotlin-language-server'
-        },
-        on_attach = function(client, bufnr)
-          -- JSON 파싱 오류 방지
-          client.config.settings = vim.tbl_deep_extend('force', client.config.settings or {}, {})
-        end,
-      })
-      --]]
-
+      -- Java LSP (선택사항 - 주석 해제하여 사용)
+      -- lspconfig.jdtls.setup({
+      --   capabilities = capabilities,
+      -- })
     end,
   },
 
@@ -336,16 +417,10 @@ keymap.set('n', '<leader>fg', require('telescope.builtin').live_grep, { desc = '
 keymap.set('n', '<leader>fb', require('telescope.builtin').buffers, { desc = 'Find buffers' })
 keymap.set('n', '<leader>fh', require('telescope.builtin').help_tags, { desc = 'Help tags' })
 
--- Kotlin 실행
--- F5는 인자 없이, F6는 인자와 함께
-vim.keymap.set('n', '<F5>', ':split | terminal kotlinc % -include-runtime -d /tmp/%.jar && java -jar /tmp/%.jar<CR>')
-vim.keymap.set('n', '<F6>', function()
-  local args = vim.fn.input("Arguments: ")
-  vim.cmd('split | terminal kotlinc % -include-runtime -d /tmp/%.jar && java -jar /tmp/%.jar ' .. args)
-end)
-
--- 스크립트 실행 (.kts 파일용)
-vim.keymap.set('n', '<F7>', ':!kotlinc -script %<CR>')
+-- Code Runner
+keymap.set('n', '<F5>', ':RunCode<CR>', { desc = 'Run Code' })
+keymap.set('n', '<F6>', ':RunFile<CR>', { desc = 'Run File' })
+keymap.set('n', '<F7>', ':RunClose<CR>', { desc = 'Close Runner' })
 
 -- LSP 키맵
 vim.api.nvim_create_autocmd('LspAttach', {
