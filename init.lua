@@ -1,6 +1,7 @@
 -- 기본 설정
 vim.g.mapleader = " " -- 리더 키를 스페이스로 설정
 vim.g.maplocalleader = " "
+vim.g.neovide_scale_factor = 1.2  -- 기본 크기를 1.2배로 설정
 
 -- 기본 옵션들
 vim.opt.number = true         -- 줄 번호 표시
@@ -117,13 +118,13 @@ require("lazy").setup({
                 end
                 
                 return string.format(
-                  "cd %s && javac %s/*.java && java %s.%s",
+                  "cd %s && mkdir -p build && javac -d build %s/*.java && java -cp build %s.%s",
                   root, package_path, package, classname
                 )
               else
                 -- 패키지가 없는 경우
                 return string.format(
-                  "cd %s && javac *.java && java %s",
+                  "cd %s && mkdir -p build && javac -d build *.java && java -cp build %s",
                   dir, classname
                 )
               end
@@ -141,13 +142,13 @@ require("lazy").setup({
                 
                 -- grep으로 main 메서드가 있는 클래스 찾기
                 return string.format(
-                  [[cd %s && javac %s/*.java && MAIN_CLASS=$(grep -l "public static void main" %s/*.java 2>/dev/null | head -1 | xargs -r basename | sed 's/.java//') && if [ -n "$MAIN_CLASS" ]; then java %s.$MAIN_CLASS; else echo "No main method found in package %s"; fi]],
+                  [[cd %s && mkdir -p build && javac -d build %s/*.java && MAIN_CLASS=$(grep -l "public static void main" %s/*.java 2>/dev/null | head -1 | xargs -r basename | sed 's/.java//') && if [ -n "$MAIN_CLASS" ]; then java -cp build %s.$MAIN_CLASS; else echo "No main method found in package %s"; fi]],
                   root, package_path, package_path, package, package
                 )
               else
                 -- 패키지가 없는 경우
                 return string.format(
-                  [[cd %s && javac *.java && MAIN_CLASS=$(grep -l "public static void main" *.java 2>/dev/null | head -1 | sed 's/.java//') && if [ -n "$MAIN_CLASS" ]; then java $MAIN_CLASS; else echo "No main method found"; fi]],
+                  [[cd %s && mkdir -p build && javac -d build *.java && MAIN_CLASS=$(grep -l "public static void main" *.java 2>/dev/null | head -1 | sed 's/.java//') && if [ -n "$MAIN_CLASS" ]; then java -cp build $MAIN_CLASS; else echo "No main method found"; fi]],
                   dir
                 )
               end
@@ -440,3 +441,10 @@ vim.api.nvim_create_autocmd('LspAttach', {
     end, opts)
   end,
 })
+
+vim.keymap.set({"n", "i"}, "<C-=>", function()
+  change_scale_factor(1.05)
+end)
+vim.keymap.set({"n", "i"}, "<C-->", function()
+  change_scale_factor(0.95)
+end)
